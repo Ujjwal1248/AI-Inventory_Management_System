@@ -1,11 +1,13 @@
 /**
  * api.js — Centralized API service for all backend calls.
+ * Updated to support cookie-based session authentication.
  */
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001/api';
 
 /**
  * Generic fetch wrapper with comprehensive error handling.
+ * credentials: 'include' ensures session cookies are sent with every request.
  */
 async function apiRequest(endpoint, options = {}) {
   const url = `${BASE_URL}${endpoint}`;
@@ -15,6 +17,7 @@ async function apiRequest(endpoint, options = {}) {
   };
 
   const config = {
+    credentials: 'include',   // ← CRITICAL: send session cookie
     ...options,
     headers,
   };
@@ -32,25 +35,50 @@ async function apiRequest(endpoint, options = {}) {
   }
 
   if (!response.ok || !resJson.success) {
-    throw new Error(resJson.error || `Request failed with status ${response.status}`);
+    const error = new Error(resJson.error || `Request failed with status ${response.status}`);
+    error.status = response.status;
+    throw error;
   }
 
   return resJson;
 }
 
-// ─── Dashboard APIs ────────────────────────────────────────────
+// ─── Auth APIs ──────────────────────────────────────────────
 
-export const getDashboardSummary     = () => apiRequest('/dashboard/summary').then((r) => r.data);
-export const getMonthlySales         = () => apiRequest('/dashboard/sales').then((r) => r.data);
-export const getStockDistribution    = () => apiRequest('/dashboard/stock-distribution').then((r) => r.data);
-export const getTopProducts          = () => apiRequest('/dashboard/top-products').then((r) => r.data);
-export const getRecentSales          = () => apiRequest('/dashboard/recent-sales').then((r) => r.data);
-export const getLowStock             = () => apiRequest('/dashboard/low-stock').then((r) => r.data);
-export const getRecentProducts       = () => apiRequest('/dashboard/recent-products').then((r) => r.data);
-export const getInventorySummary     = () => apiRequest('/dashboard/inventory-summary').then((r) => r.data);
-export const getHealthCheck          = () => apiRequest('/health');
+export const checkSession = () =>
+  apiRequest('/auth/session');
 
-// ─── Products APIs (Phase 2) ───────────────────────────────────
+export const loginUser = (email, password) =>
+  apiRequest('/auth/login', {
+    method: 'POST',
+    body:   { email, password },
+  });
+
+export const registerUser = (name, email, password) =>
+  apiRequest('/auth/register', {
+    method: 'POST',
+    body:   { name, email, password },
+  });
+
+export const logoutUser = () =>
+  apiRequest('/auth/logout', { method: 'POST' });
+
+export const getProfile = () =>
+  apiRequest('/auth/me');
+
+// ─── Dashboard APIs ─────────────────────────────────────────
+
+export const getDashboardSummary  = () => apiRequest('/dashboard/summary').then((r) => r.data);
+export const getMonthlySales      = () => apiRequest('/dashboard/sales').then((r) => r.data);
+export const getStockDistribution = () => apiRequest('/dashboard/stock-distribution').then((r) => r.data);
+export const getTopProducts       = () => apiRequest('/dashboard/top-products').then((r) => r.data);
+export const getRecentSales       = () => apiRequest('/dashboard/recent-sales').then((r) => r.data);
+export const getLowStock          = () => apiRequest('/dashboard/low-stock').then((r) => r.data);
+export const getRecentProducts    = () => apiRequest('/dashboard/recent-products').then((r) => r.data);
+export const getInventorySummary  = () => apiRequest('/dashboard/inventory-summary').then((r) => r.data);
+export const getHealthCheck       = () => apiRequest('/health');
+
+// ─── Products APIs (Phase 2) ─────────────────────────────────
 
 /**
  * GET /api/products
@@ -85,7 +113,7 @@ export const getProductById = (id) =>
 export const createProduct = (productData) =>
   apiRequest('/products', {
     method: 'POST',
-    body: productData,
+    body:   productData,
   });
 
 /**
@@ -94,7 +122,7 @@ export const createProduct = (productData) =>
 export const updateProduct = (id, productData) =>
   apiRequest(`/products/${id}`, {
     method: 'PUT',
-    body: productData,
+    body:   productData,
   });
 
 /**
@@ -105,7 +133,7 @@ export const deleteProduct = (id) =>
     method: 'DELETE',
   });
 
-// ─── Inventory APIs (Phase 3) ──────────────────────────────────
+// ─── Inventory APIs (Phase 3) ─────────────────────────────────
 
 /**
  * GET /api/inventory
@@ -135,7 +163,7 @@ export const getProductInventory = (productId) =>
 export const adjustStock = (data) =>
   apiRequest('/inventory/adjust', {
     method: 'POST',
-    body: data,
+    body:   data,
   });
 
 /**
@@ -159,7 +187,7 @@ export const getStockMovements = (params = {}) => {
 export const getLowStockInventory = () =>
   apiRequest('/inventory/low-stock').then((r) => r.data);
 
-// ─── POS & Sales APIs (Phase 4) ────────────────────────────────
+// ─── POS & Sales APIs (Phase 4) ─────────────────────────────
 
 /**
  * GET /api/pos/products
@@ -183,7 +211,7 @@ export const getPosProducts = (params = {}) => {
 export const createSale = (saleData) =>
   apiRequest('/sales', {
     method: 'POST',
-    body: saleData,
+    body:   saleData,
   });
 
 /**
