@@ -1,5 +1,6 @@
 import React from 'react';
 import { useLocation } from 'react-router-dom';
+import UserMenu from '../auth/UserMenu.jsx';
 
 const pageTitles = {
   '/':                { title: 'Dashboard',          subtitle: 'Overview of your inventory & sales' },
@@ -33,6 +34,7 @@ export default function TopHeader() {
       <div className="top-header-right">
         <span style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>{now}</span>
         <span className="header-badge">🤖 AI Powered</span>
+        <UserMenu />
       </div>
     </header>
   );

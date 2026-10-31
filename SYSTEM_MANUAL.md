@@ -378,3 +378,237 @@ When ready to continue in another session, the foundation is prepared for:
 1. **Phase 5: Demand Forecasting & AI Analytics** (Moving averages, seasonal reorder projections).
 2. **Phase 6: Suppliers & Automated Purchase Orders** (Vendor profiles, PO creation, receiving shipments directly into stock).
 3. **Phase 7: Competitor Price Intelligence** (Competitor scraping & dynamic pricing suggestions).
+
+
+---
+
+## 12. Authentication System (Phase 5)
+
+> **Status: Complete and tested.** All existing inventory, product, POS, and sales functionality is preserved.
+
+### 12.1 Overview
+
+Phase 5 adds full authentication to the Gemini Inventory system using:
+
+| Layer | Implementation |
+|---|---|
+| **Password Auth** | `bcryptjs` (12 salt rounds) + `passport-local` |
+| **Google OAuth** | `passport-google-oauth20` + Passport.js |
+| **Session Store** | PostgreSQL via `connect-pg-simple` (`session` table) |
+| **Session Cookie** | HTTP-only, `gis.sid` named cookie (7-day expiry) |
+| **Rate Limiting** | `express-rate-limit` (10 login attempts/15 min, 5 registrations/hr) |
+| **Frontend Guard** | React `AuthContext` + `ProtectedRoute` component |
+| **User Menu** | Avatar/initials display + logout dropdown in `TopHeader` |
+
+---
+
+### 12.2 New Files Created
+
+#### Backend
+```
+backend/
+├── database/
+│   ├── auth-schema.sql        # Users + session tables (additive, non-destructive)
+│   └── auth-setup.js          # Script to run auth-schema.sql
+└── src/
+    ├── config/
+    │   └── passport.js         # Passport Local + Google strategies
+    ├── controllers/
+    │   └── authController.js   # register, login, logout, getMe, checkSession
+    ├── middleware/
+    │   └── authMiddleware.js   # requireAuth, requireAdmin, safeUser helpers
+    └── routes/
+        └── auth.js             # /api/auth/* route definitions
+```
+
+#### Frontend
+```
+frontend/src/
+├── context/
+│   └── AuthContext.jsx         # Global auth state, login/logout/register helpers
+├── components/auth/
+│   ├── ProtectedRoute.jsx      # Redirects unauthenticated users to /login
+│   └── UserMenu.jsx            # Avatar + name + logout dropdown
+└── pages/
+    ├── LoginPage.jsx           # Login form + Google button
+    └── RegisterPage.jsx        # Registration form + password strength
+```
+
+#### Modified Files
+- `backend/src/index.js` — Added session, passport, auth routes, protected route middleware
+- `backend/.env` / `.env.example` — Added `SESSION_SECRET`, `COOKIE_SECRET`, Google OAuth vars
+- `frontend/src/App.jsx` — Wrapped with `AuthProvider`, added `ProtectedRoute`, login/register routes
+- `frontend/src/services/api.js` — Added `credentials: 'include'` + auth API functions
+- `frontend/src/components/layout/TopHeader.jsx` — Added `<UserMenu />`
+
+---
+
+### 12.3 API Endpoints
+
+| Method | Endpoint | Auth Required | Description |
+|--------|----------|:---:|-------------|
+| `POST` | `/api/auth/register` | No | Create account (email + password) |
+| `POST` | `/api/auth/login` | No | Email/password login |
+| `POST` | `/api/auth/logout` | Yes | Invalidate session |
+| `GET`  | `/api/auth/session` | No | Check if session is alive |
+| `GET`  | `/api/auth/me` | Yes | Get authenticated user profile |
+| `GET`  | `/api/auth/google` | No | Start Google OAuth flow |
+| `GET`  | `/api/auth/google/callback` | No | Google OAuth callback |
+
+All other existing API routes (`/api/dashboard/*`, `/api/products/*`, `/api/inventory/*`, `/api/pos/*`, `/api/sales/*`) now require authentication.
+
+---
+
+### 12.4 Environment Variables (Updated)
+
+#### Backend (`backend/.env` / `backend/.env.example`)
+```env
+PORT=5001
+NODE_ENV=development
+
+# PostgreSQL
+DB_HOST=127.0.0.1
+DB_PORT=5433
+DB_NAME=gemini_inventory
+DB_USER=your_pg_user
+DB_PASSWORD=your_pg_password
+
+# CORS
+FRONTEND_URL=http://localhost:5173
+
+# Session & Cookie Security
+# Generate: node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
+SESSION_SECRET=your_strong_session_secret_here
+COOKIE_SECRET=your_strong_cookie_secret_here
+
+# Google OAuth 2.0
+GOOGLE_CLIENT_ID=your_google_client_id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your_google_client_secret
+GOOGLE_CALLBACK_URL=http://localhost:5001/api/auth/google/callback
+```
+
+---
+
+### 12.5 Google OAuth 2.0 Setup
+
+> Google OAuth is **optional** — the app works fully with email/password only. Google credentials are only needed to enable the "Continue with Google" button.
+
+**Step 1: Create a Google Cloud Project**
+1. Go to [https://console.cloud.google.com/](https://console.cloud.google.com/)
+2. Click **"Select a project"** → **"New Project"**
+3. Name it `Gemini Inventory` → click **Create**
+
+**Step 2: Enable the APIs**
+1. In the left menu → **"APIs & Services"** → **"Enable APIs and Services"**
+2. Search for **"Google+ API"** → Enable it (or **"People API"**)
+
+**Step 3: Create OAuth 2.0 Credentials**
+1. Go to **"APIs & Services"** → **"Credentials"** → **"Create Credentials"** → **"OAuth 2.0 Client IDs"**
+2. If prompted, configure the **OAuth consent screen** first:
+   - User type: **External**
+   - App name: `Gemini Inventory`
+   - Scopes: add `email`, `profile`, `openid`
+3. **Application type:** Web application
+4. **Name:** `Gemini Inventory Dev`
+5. **Authorized redirect URIs:** Add:
+   - `http://localhost:5001/api/auth/google/callback`
+   - *(For production: `https://yourdomain.com/api/auth/google/callback`)*
+6. Click **Create** — copy the **Client ID** and **Client Secret**
+
+**Step 4: Update `.env`**
+```env
+GOOGLE_CLIENT_ID=1234567890-abc.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=GOCSPX-yourSecretHere
+GOOGLE_CALLBACK_URL=http://localhost:5001/api/auth/google/callback
+```
+
+**Step 5: Restart the backend** — the Google button will now work.
+
+---
+
+### 12.6 Database Schema Added
+
+```sql
+-- New table: users
+CREATE TABLE IF NOT EXISTS users (
+  id            SERIAL        PRIMARY KEY,
+  name          VARCHAR(255)  NOT NULL,
+  email         VARCHAR(255)  NOT NULL UNIQUE,
+  password_hash TEXT,                          -- NULL for OAuth-only users
+  google_id     VARCHAR(255)  UNIQUE,
+  avatar_url    TEXT,
+  role          VARCHAR(50)   NOT NULL DEFAULT 'user',
+  is_active     BOOLEAN       NOT NULL DEFAULT TRUE,
+  created_at    TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+  updated_at    TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+);
+
+-- New table: session (connect-pg-simple)
+CREATE TABLE IF NOT EXISTS "session" (
+  "sid"    VARCHAR     NOT NULL,
+  "sess"   JSON        NOT NULL,
+  "expire" TIMESTAMPTZ NOT NULL,
+  PRIMARY KEY ("sid")
+);
+```
+
+> **No existing tables were modified.** Both tables are created with `IF NOT EXISTS`.
+
+---
+
+### 12.7 Run Auth Schema (One-time setup)
+
+If starting fresh on a new machine, run the auth schema after the main database setup:
+
+```bash
+# From the backend/ directory
+npm run db:auth-setup
+```
+
+This is safe to run multiple times.
+
+---
+
+### 12.8 Security Measures Implemented
+
+| Feature | Implementation |
+|---|---|
+| Password hashing | `bcryptjs` with 12 salt rounds |
+| Session security | HTTP-only cookie, `sameSite: lax`, 7-day expiry |
+| Session storage | PostgreSQL (not in-memory — survives restarts) |
+| Cookie name | Custom `gis.sid` (not the default `connect.sid`) |
+| Rate limiting | 10 login attempts/15 min, 5 registrations/hr |
+| Input validation | Server-side email regex + password length check |
+| Duplicate prevention | Database `UNIQUE` constraint on `email` |
+| Safe user response | `password_hash` is never sent to the client |
+| Google account linking | Existing email accounts get `google_id` linked automatically |
+
+---
+
+### 12.9 Testing Authentication
+
+```bash
+# 1. Check session (unauthenticated)
+curl http://localhost:5001/api/auth/session
+# → {"success":true,"authenticated":false}
+
+# 2. Register
+curl -X POST http://localhost:5001/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Alice","email":"alice@example.com","password":"SecurePass123!"}' \
+  -c /tmp/cookies.txt
+
+# 3. Check session (authenticated)
+curl http://localhost:5001/api/auth/session -b /tmp/cookies.txt
+# → {"success":true,"authenticated":true,"user":{...}}
+
+# 4. Access protected API
+curl http://localhost:5001/api/dashboard/summary -b /tmp/cookies.txt
+
+# 5. Logout
+curl -X POST http://localhost:5001/api/auth/logout -b /tmp/cookies.txt
+
+# 6. Confirm logged out
+curl http://localhost:5001/api/auth/session
+# → {"success":true,"authenticated":false}
+```
